@@ -129,7 +129,7 @@ typedef unsigned long long IUINT64;
 
 
 //=====================================================================
-// QUEUE DEFINITION                                                  
+// QUEUE DEFINITION                    （双端）链式队列
 //=====================================================================
 #ifndef __IQUEUE_DEF__
 #define __IQUEUE_DEF__
@@ -247,28 +247,41 @@ typedef struct IQUEUEHEAD iqueue_head;
         #define IWORDS_BIG_ENDIAN  0
     #endif
 #endif
+/*
+4           1   1     2 (Byte)
++---+---+---+---+---+---+---+---+
+|     conv      |cmd|frg|  wnd  |
++---+---+---+---+---+---+---+---+
+|     ts        |     sn        |
++---+---+---+---+---+---+---+---+
+|     una       |     len       |
++---+---+---+---+---+---+---+---+
+|                               |
++             DATA              +
+|                               |
++---+---+---+---+---+---+---+---+
 
-
+**/
 
 //=====================================================================
 // SEGMENT
 //=====================================================================
 struct IKCPSEG
 {
-	struct IQUEUEHEAD node;
-	IUINT32 conv;
-	IUINT32 cmd;
-	IUINT32 frg;
-	IUINT32 wnd;
-	IUINT32 ts;
-	IUINT32 sn;
-	IUINT32 una;
+	struct IQUEUEHEAD node;	// 用来串接多个 KCP segment，也就是前向后向指针
+	IUINT32 conv;			// 会话编号，通信双方必须一致才能使用 KCP 协议交换数据；
+	IUINT32 cmd;            // 报文类型：RUDP_CMD_PUSH | RUDP_CMD_ACK | RUDP_CMD_WASK｜RUDP_CMD_WINS
+	IUINT32 frg;            // 分片的编号，当输出数据大于MSS时，需要将数据进行分片，frg 记录了分片时的倒序序号 (报文在包中的位置：包被分割成n个报文进行发送， frg = n - index - 1  [倒序索引])
+	IUINT32 wnd;            // 填写己方的可用窗口大小 (接收窗口未被使用的大小：wnd = rcv_wnd - rcv_queue.Length)
+	IUINT32 ts;             // ts记录了发送时的时间戳，用来估计 RTT
+	IUINT32 sn;             // data报文的编号或者ack报文的确认编号        ack当前报文，等待回应的帧ID
+	IUINT32 una;            // 当前还未确认的数据包的编号                ack当前未应答最小帧号
 	IUINT32 len;
-	IUINT32 resendts;
-	IUINT32 rto;
-	IUINT32 fastack;
-	IUINT32 xmit;
-	char data[1];
+	IUINT32 resendts;       // 下一次重传的时间
+	IUINT32 rto;            // 超时重传机制的时间系数，它是会动态调整的
+	IUINT32 fastack;        // 这个值会累加，当超过一个阈值的时候会触发一次重传。累计规则：收到比它后的帧号的ack应答后，它会被累加       用于快重传
+	IUINT32 xmit;           // 该报文被重传次数，当xmit > dead_link 表示连接断开
+	char data[1];			// 实际传输的数据
 };
 
 
@@ -278,26 +291,44 @@ struct IKCPSEG
 struct IKCPCB
 {
 	IUINT32 conv, mtu, mss, state;
-	IUINT32 snd_una, snd_nxt, rcv_nxt;
+	IUINT32 snd_una;            // 发送队列等待的ack最小帧号
+    IUINT32 snd_nxt;            // 发送队列下一个待发送的帧号
+    IUINT32 rcv_nxt;            // 接收队列下一个待接收的帧号
 	IUINT32 ts_recent, ts_lastack, ssthresh;
-	IINT32 rx_rttval, rx_srtt, rx_rto, rx_minrto;
-	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe;
-	IUINT32 current, interval, ts_flush, xmit;
-	IUINT32 nrcv_buf, nsnd_buf;
-	IUINT32 nrcv_que, nsnd_que;
-	IUINT32 nodelay, updated;
-	IUINT32 ts_probe, probe_wait;
-	IUINT32 dead_link, incr;
-	struct IQUEUEHEAD snd_queue;
-	struct IQUEUEHEAD rcv_queue;
+	IINT32 rx_rttval;
+    IINT32 rx_srtt;
+    IINT32 rx_rto;
+    IINT32 rx_minrto;
+	IUINT32 snd_wnd;
+	IUINT32 rcv_wnd;			// 接收窗口大小
+	IUINT32 rmt_wnd;
+	IUINT32 cwnd;
+    IUINT32 probe;              // 请求窗口size | 发送窗口size
+	IUINT32 current;
+    IUINT32 interval;           // 刷新间隔时间
+    IUINT32 ts_flush;           // 上一次flush的时间
+    IUINT32 xmit;               // 重传次数
+	IUINT32 nrcv_buf;
+    IUINT32 nsnd_buf;
+	IUINT32 nrcv_que;
+    IUINT32 nsnd_que;
+	IUINT32 nodelay;
+    IUINT32 updated;            // 是否是第一次更新
+	IUINT32 ts_probe;           // 下一次请求探测远端窗口大小的时间
+    IUINT32 probe_wait;
+
+	IUINT32 dead_link;          // 超时重传超过这个值，视作连接断开
+    IUINT32 incr;               // 慢热启动
+	struct IQUEUEHEAD snd_queue;    // 发送队列 buffer -> snd_queue -> snd_buf    snd_buf = 窗口
+	struct IQUEUEHEAD rcv_queue;    // 接收队列 rcv_buf -> rcv_queue -> buffer    rcv_buf = 窗口
 	struct IQUEUEHEAD snd_buf;
 	struct IQUEUEHEAD rcv_buf;
-	IUINT32 *acklist;
-	IUINT32 ackcount;
-	IUINT32 ackblock;
+	IUINT32 *acklist;               // 待返回的ack应答序列.当收到一个数据报文时，将其对应的ACK报文的[sn号]以及[时间戳ts]同时加入到acklist中，即形成如 [sn1, ts1, sn2, ts2 ...] 的列表
+	IUINT32 ackcount;				// 记录acklist中存放的ACK报文的数量
+	IUINT32 ackblock;				// acklist 数组的可用长度，当 acklist 的容量不足时，需要进行扩容
 	void *user;
-	char *buffer;
-	int fastresend;
+	char *buffer;                   // 内部报文容器
+	int fastresend;                 // 快速重传
 	int nocwnd, stream;
 	int logmask;
 	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);

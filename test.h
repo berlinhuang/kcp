@@ -87,12 +87,14 @@ static inline void isleep(unsigned long millisecond)
 class DelayPacket
 {
 public:
-	virtual ~DelayPacket() {
+	virtual ~DelayPacket()
+    {
 		if (_ptr) delete _ptr;
 		_ptr = NULL;
 	}
 
-	DelayPacket(int size, const void *src = NULL) {
+	DelayPacket(int size, const void *src = NULL)
+    {
 		_ptr = new unsigned char[size];
 		_size = size;
 		if (src) {
@@ -117,16 +119,20 @@ protected:
 class Random
 {
 public:
-	Random(int size) {
+	Random(int size)
+    {
 		this->size = 0;
 		seeds.resize(size);
 	}
 
-	int random() {
+	int random()
+    {
 		int x, i;
 		if (seeds.size() == 0) return 0;
-		if (size == 0) { 
-			for (i = 0; i < (int)seeds.size(); i++) {
+		if (size == 0)
+        {
+			for (i = 0; i < (int)seeds.size(); i++)
+            {
 				seeds[i] = i;
 			}
 			size = (int)seeds.size();
@@ -155,7 +161,8 @@ public:
 	// rttmin：rtt最小值，默认 60
 	// rttmax：rtt最大值，默认 125
 	LatencySimulator(int lostrate = 10, int rttmin = 60, int rttmax = 125, int nmax = 1000): 
-		r12(100), r21(100) {
+		r12(100), r21(100)
+    {
 		current = iclock();		
 		this->lostrate = lostrate / 2;	// 上面数据是往返丢包率，单程除以2
 		this->rttmin = rttmin / 2;
@@ -165,7 +172,8 @@ public:
 	}
 
 	// 清除数据
-	void clear() {
+	void clear()
+    {
 		DelayTunnel::iterator it;
 		for (it = p12.begin(); it != p12.end(); it++) {
 			delete *it;
@@ -179,12 +187,16 @@ public:
 
 	// 发送数据
 	// peer - 端点0/1，从0发送，从1接收；从1发送从0接收
-	void send(int peer, const void *data, int size) {
-		if (peer == 0) {
+	void send(int peer, const void *data, int size)
+    {
+		if (peer == 0)
+        {
 			tx1++;
 			if (r12.random() < lostrate) return;
 			if ((int)p12.size() >= nmax) return;
-		}	else {
+		}
+        else
+        {
 			tx2++;
 			if (r21.random() < lostrate) return;
 			if ((int)p21.size() >= nmax) return;
@@ -194,20 +206,27 @@ public:
 		IUINT32 delay = rttmin;
 		if (rttmax > rttmin) delay += rand() % (rttmax - rttmin);
 		pkt->setts(current + delay);
-		if (peer == 0) {
+		if (peer == 0)
+        {
 			p12.push_back(pkt);
-		}	else {
+		}
+        else
+        {
 			p21.push_back(pkt);
 		}
 	}
 
 	// 接收数据
-	int recv(int peer, void *data, int maxsize) {
+	int recv(int peer, void *data, int maxsize)
+    {
 		DelayTunnel::iterator it;
-		if (peer == 0) {
+		if (peer == 0)
+        {
 			it = p21.begin();
 			if (p21.size() == 0) return -1;
-		}	else {
+		}
+        else
+        {
 			it = p12.begin();
 			if (p12.size() == 0) return -1;
 		}
@@ -215,9 +234,12 @@ public:
 		current = iclock();
 		if (current < pkt->ts()) return -2;
 		if (maxsize < pkt->size()) return -3;
-		if (peer == 0) {
+		if (peer == 0)
+        {
 			p21.erase(it);
-		}	else {
+		}
+        else
+        {
 			p12.erase(it);
 		}
 		maxsize = pkt->size();
